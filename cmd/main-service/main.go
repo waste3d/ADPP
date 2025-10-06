@@ -7,37 +7,45 @@ import (
 	"github.com/waste3d/ADPP/internal/api/http/routers"
 	v1 "github.com/waste3d/ADPP/internal/api/http/v1"
 	"github.com/waste3d/ADPP/internal/config"
-	storage "github.com/waste3d/ADPP/internal/storage/postgres"
+	"github.com/waste3d/ADPP/internal/domain"
+	postgresStorage "github.com/waste3d/ADPP/internal/storage/postgres"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
 func main() {
-	fmt.Println("Main Service starting")
+	log.Println("Main Service is starting...")
 
+	// 1 - configuration
 	cfg := config.Load()
 
-	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable",
+	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
 		cfg.Database.Host,
+		cfg.Database.Port,
 		cfg.Database.User,
 		cfg.Database.Password,
 		cfg.Database.Name,
-		cfg.Database.Port,
 	)
+
+	// 2 - database
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("failed to connect to database: ", err)
+	}
+	err = db.AutoMigrate(&domain.Job{})
+	if err != nil {
+		log.Fatal("Failed to migrate database: ", err)
 	}
 
-	jobStorage := storage.New(db)
+	// 3 - dependencies
+	jobStorage := postgresStorage.New(db)
 	handler := v1.NewHandler(jobStorage)
 
-	router := routers.InitRouters(jobStorage, handler)
+	router := routers.InitRouters(handler)
+	log.Println("Router initialized.")
 
-	err = router.Run(":8080")
-	if err != nil {
-		log.Fatal(err)
+	log.Printf("Starting server on %s", cfg.Services.MainServicePort)
+	if err := router.Run(":" + cfg.Services.MainServicePort); err != nil {
+		log.Fatalf("FATAL: Failed to start server: %s", err)
 	}
-
-	log.Println("Main Service started")
 }
